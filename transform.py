@@ -1,305 +1,314 @@
 import pandas as pd
 import os
 
-# Definir las rutas
-ruta_raw = 'RAW'
-ruta_dw = 'DW'
+# --- Configuración de Rutas Globales ---
+RUTA_RAW = 'RAW'
+RUTA_DW = 'DW'
 
-# Asegurarse de que el directorio DW exista
-os.makedirs(ruta_dw, exist_ok=True)
+# --- Funciones Auxiliares (Helpers) ---
 
-# --- 1. Transformación de dim_canal ---
-print("Iniciando transformación de Canales...")
+def load_raw_data(table_name):
+    """Carga un archivo CSV desde la carpeta RAW."""
+    raw_path = os.path.join(RUTA_RAW, f'{table_name}.csv')
+    try:
+        df = pd.read_csv(raw_path)
+        print(f"Datos cargados desde: {raw_path}")
+        return df
+    except FileNotFoundError:
+        print(f"ERROR: Archivo no encontrado en {raw_path}")
+        return None
 
-# Leer el CSV original
-df_canal = pd.read_csv(os.path.join(ruta_raw, 'channel.csv'))
+def save_to_dw(df, table_name):
+    """Guarda un DataFrame en la carpeta DW."""
+    # Asegurarse de que el directorio DW exista
+    os.makedirs(RUTA_DW, exist_ok=True)
+    
+    dw_path = os.path.join(RUTA_DW, f'{table_name}.csv')
+    df.to_csv(dw_path, index=False)
+    print(f"Datos guardados en: {dw_path}")
 
-# Renombrar columnas (Modelado)
-df_canal = df_canal.rename(columns={
-    'channel_id': 'id_canal',
-    'name': 'nombre_canal',
-    'code': 'codigo_canal'  # Mantenemos el código por si acaso
-})
+# --- Funciones de Conversión de Fecha ---
 
-# Seleccionar solo las columnas que queremos
-df_canal_final = df_canal[['id_canal', 'nombre_canal', 'codigo_canal']]
+def convert_to_yyyymmdd(date_column):
+    """Convierte una columna de datetime a entero YYYYMMDD."""
+    return (
+        date_column.dt.year * 10000 +
+        date_column.dt.month * 100 +
+        date_column.dt.day
+    ).astype(int)
 
-# Guardar el archivo transformado en DW
-ruta_salida = os.path.join(ruta_dw, 'dim_canal.csv')
-df_canal_final.to_csv(ruta_salida, index=False)
+def parse_dates(column, errors='coerce'):
+    """Convierte una columna a datetime de forma segura."""
+    return pd.to_datetime(column, errors=errors)
 
-print(f"Canales transformados y guardados en: {ruta_salida}")
-print("--- Transformación de Canales Finalizada ---")
+# --- 1. Transformación de Dimensiones ---
 
-# --- 2. Transformación de dim_producto ---
-print("\nIniciando transformación de Productos...")
+def process_dim_channel():
+    print("\nProcesando: dim_channel...")
+    df = load_raw_data('channel')
+    if df is None: return
+    # Renombrar para coincidir con la imagen (aunque ya estaba cerca)
+    df = df.rename(columns={'channel_id': 'id_channel', 'name': 'channel_name', 'code': 'channel_code'})
+    save_to_dw(df, 'dim_channel')
 
-# Leer los CSV originales
-df_producto = pd.read_csv(os.path.join(ruta_raw, 'product.csv'))
-df_categoria = pd.read_csv(os.path.join(ruta_raw, 'product_category.csv'))
+def process_dim_product():
+    print("\nProcesando: dim_product...")
+    df_producto = load_raw_data('product')
+    df_categoria = load_raw_data('product_category')
+    if df_producto is None or df_categoria is None: return
 
-# --- Transformación (Join) ---
-# Unimos los dos dataframes para tener el nombre de la categoría
-# Es como un VLOOKUP o un JOIN de SQL
-df_prod_full = pd.merge(
-    df_producto,
-    df_categoria,
-    on='category_id', # La clave que tienen en común
-    how='left'        # 'left' para mantener todos los productos, tengan o no categoría
-)
+    df_prod_full = pd.merge(df_producto, df_categoria, on='category_id', how='left')
+    df_prod_full = df_prod_full.rename(columns={
+        'product_id': 'id_product',
+        'name_x': 'product_name',
+        'list_price': 'list_price',
+        'name_y': 'category_name'
+    })
+    df_prod_final = df_prod_full[['id_product', 'sku', 'product_name', 'list_price', 'category_name']]
+    save_to_dw(df_prod_final, 'dim_product')
 
-# Renombrar columnas (Modelado)
-df_prod_full = df_prod_full.rename(columns={
-    'product_id': 'id_producto',
-    'sku': 'sku',
-    'name_x': 'nombre_producto',   # 'name_x' es el 'name' de producto
-    'list_price': 'precio_lista',
-    'name_y': 'nombre_categoria' # 'name_y' es el 'name' de categoría
-})
+def process_dim_customer():
+    print("\nProcesando: dim_customer...")
+    df = load_raw_data('customer')
+    if df is None: return
 
-# Seleccionar solo las columnas que queremos
-df_prod_final = df_prod_full[[
-    'id_producto', 
-    'sku', 
-    'nombre_producto', 
-    'precio_lista', 
-    'nombre_categoria'
-]]
+    df['full_name'] = df['first_name'].fillna('') + ' ' + df['last_name'].fillna('')
+    df = df.rename(columns={
+        'customer_id': 'id_customer',
+        'status': 'status',
+        'created_at': 'created_at'
+    })
+    df_final = df[['id_customer', 'email', 'full_name', 'status', 'created_at']]
+    save_to_dw(df_final, 'dim_customer')
 
-# Guardar el archivo transformado en DW
-ruta_salida = os.path.join(ruta_dw, 'dim_producto.csv')
-df_prod_final.to_csv(ruta_salida, index=False)
+def process_dim_province():
+    print("\nProcesando: dim_province...")
+    df = load_raw_data('province')
+    if df is None: return
+    df = df.rename(columns={'province_id': 'id_province', 'name': 'province_name', 'code': 'province_code'})
+    save_to_dw(df, 'dim_province')
 
-print(f"Productos transformados y guardados en: {ruta_salida}")
-print("--- Transformación de Productos Finalizada ---")
+def process_dim_location():
+    print("\nProcesando: dim_location...")
+    df = load_raw_data('address')
+    if df is None: return
+    # Esta tabla es la 'dim_location' de la imagen
+    df = df.rename(columns={'address_id': 'id_location', 'line1': 'address_line1', 'city': 'city', 'province_id': 'id_province'})
+    df_final = df[['id_location', 'address_line1', 'city', 'id_province', 'postal_code']]
+    save_to_dw(df_final, 'dim_location')
+    
+def process_dim_store():
+    print("\nProcesando: dim_store...")
+    df = load_raw_data('store')
+    if df is None: return
+    # Esta era tu 'dim_geografia'
+    df = df.rename(columns={'store_id': 'id_store', 'name': 'store_name', 'address_id': 'id_location'})
+    df_final = df[['id_store', 'store_name', 'id_location']]
+    save_to_dw(df_final, 'dim_store')
+
+def process_dim_date():
+    print("\nProcesando: dim_date...")
+    df_pedidos = load_raw_data('sales_order')
+    if df_pedidos is None: return
+
+    df_pedidos['order_date'] = parse_dates(df_pedidos['order_date'])
+    fecha_min = df_pedidos['order_date'].min()
+    fecha_max = df_pedidos['order_date'].max()
+    print(f"Rango de fechas detectado: {fecha_min} a {fecha_max}")
+
+    date_range = pd.date_range(start=fecha_min, end=fecha_max, freq='D')
+    df_date = pd.DataFrame(date_range, columns=['full_date'])
+
+    df_date['id_date'] = df_date['full_date'].dt.strftime('%Y%m%d').astype(int)
+    df_date['year'] = df_date['full_date'].dt.year
+    df_date['month'] = df_date['full_date'].dt.month
+    df_date['month_name'] = df_date['full_date'].dt.strftime('%B')
+    df_date['day'] = df_date['full_date'].dt.day
+    df_date['quarter'] = df_date['full_date'].dt.quarter
+    df_date['day_of_week'] = df_date['full_date'].dt.dayofweek
+
+    df_date_final = df_date[['id_date', 'full_date', 'year', 'month', 'month_name', 'day', 'quarter', 'day_of_week']]
+    save_to_dw(df_date_final, 'dim_date')
+    return df_date_final # Para usar en las facts
+
+# --- 2. Transformación de Tablas de Hechos ---
+
+def process_fact_sales_order(df_date):
+    print("\nProcesando: fact_sales_order...")
+    df = load_raw_data('sales_order')
+    if df is None or df_date is None: return
+    
+    # Filtrar por ventas válidas [cite: 180]
+    estados_validos = ['PAID', 'FULFILLED']
+    df = df[df['status'].isin(estados_validos)]
+
+    # Preparar fechas para el join
+    df['order_date'] = parse_dates(df['order_date'])
+    df['date_join'] = df['order_date'].dt.date
+    df_date['date_join'] = parse_dates(df_date['full_date']).dt.date
+
+    # Join con dim_date
+    df_fact = pd.merge(
+        df,
+        df_date[['id_date', 'date_join']],
+        on='date_join',
+        how='left'
+    )
+    
+    # Renombrar y seleccionar
+    df_fact = df_fact.rename(columns={
+        'order_id': 'id_order',
+        'customer_id': 'id_customer',
+        'channel_id': 'id_channel',
+        'store_id': 'id_store',
+        'billing_address_id': 'id_billing_location',
+        'shipping_address_id': 'id_shipping_location',
+        'total_amount': 'total_amount',
+        'subtotal': 'subtotal',
+        'tax_amount': 'tax_amount',
+        'shipping_fee': 'shipping_fee'
+    })
+    
+    df_final = df_fact[[
+        'id_order', 'id_date', 'id_customer', 'id_channel', 'id_store',
+        'id_shipping_location', 'total_amount', 'subtotal', 'tax_amount', 'shipping_fee'
+    ]]
+    save_to_dw(df_final, 'fact_sales_order')
+
+def process_fact_sales_order_item(df_date):
+    print("\nProcesando: fact_sales_order_item...")
+    df_pedidos = load_raw_data('sales_order')
+    df_items = load_raw_data('sales_order_item')
+    if df_pedidos is None or df_items is None or df_date is None: return
+
+    # Join para obtener fechas y FKs del pedido
+    df_fact = pd.merge(df_items, df_pedidos, on='order_id', how='inner')
+
+    # Filtrar por ventas válidas [cite: 180]
+    estados_validos = ['PAID', 'FULFILLED']
+    df_fact = df_fact[df_fact['status'].isin(estados_validos)]
+
+    # Preparar fechas para el join
+    df_fact['order_date'] = parse_dates(df_fact['order_date'])
+    df_fact['date_join'] = df_fact['order_date'].dt.date
+    df_date['date_join'] = parse_dates(df_date['full_date']).dt.date
+
+    # Join con dim_date
+    df_fact = pd.merge(
+        df_fact,
+        df_date[['id_date', 'date_join']],
+        on='date_join',
+        how='left'
+    )
+    
+    # Renombrar y seleccionar
+    df_fact = df_fact.rename(columns={
+        'order_item_id': 'id_order_item',
+        'order_id': 'id_order',
+        'product_id': 'id_product',
+        'customer_id': 'id_customer', # De la cabecera del pedido
+        'quantity': 'quantity',
+        'unit_price': 'unit_price',
+        'discount_amount': 'discount_amount',
+        'line_total': 'line_total'
+    })
+    
+    df_final = df_fact[[
+        'id_order_item', 'id_order', 'id_date', 'id_product', 'id_customer',
+        'quantity', 'unit_price', 'discount_amount', 'line_total'
+    ]]
+    save_to_dw(df_final, 'fact_sales_order_item')
+
+def process_fact_web_session():
+    print("\nProcesando: fact_web_session...")
+    df = load_raw_data('web_session')
+    if df is None: return
+
+    df['started_at'] = parse_dates(df['started_at'])
+    df = df.dropna(subset=['started_at'])
+    df['id_date'] = convert_to_yyyymmdd(df['started_at'])
+    
+    df = df.rename(columns={'customer_id': 'id_customer'})
+    
+    df_final = df[['session_id', 'id_customer', 'id_date', 'source', 'device', 'started_at']]
+    save_to_dw(df_final, 'fact_web_session')
+
+def process_fact_nps_response():
+    print("\nProcesando: fact_nps_response...")
+    df = load_raw_data('nps_response')
+    if df is None: return
+
+    df['responded_at'] = parse_dates(df['responded_at'])
+    df = df.dropna(subset=['responded_at'])
+    df['id_date'] = convert_to_yyyymmdd(df['responded_at'])
+
+    df = df.rename(columns={'customer_id': 'id_customer', 'channel_id': 'id_channel'})
+
+    df_final = df[['nps_id', 'id_customer', 'id_channel', 'id_date', 'score', 'responded_at']]
+    save_to_dw(df_final, 'fact_nps_response')
+
+def process_fact_payment():
+    print("\nProcesando: fact_payment...")
+    df = load_raw_data('payment')
+    if df is None: return
+    
+    df['paid_at'] = parse_dates(df['paid_at'])
+    # Solo nos interesan los pagos que tienen fecha
+    df = df.dropna(subset=['paid_at'])
+    df['id_date'] = convert_to_yyyymmdd(df['paid_at'])
+
+    df = df.rename(columns={'order_id': 'id_order', 'method': 'payment_method'})
+    
+    df_final = df[['payment_id', 'id_order', 'id_date', 'payment_method', 'status', 'amount', 'paid_at']]
+    save_to_dw(df_final, 'fact_payment')
+
+def process_fact_shipment():
+    print("\nProcesando: fact_shipment...")
+    df = load_raw_data('shipment')
+    if df is None: return
+
+    # Esta tabla tiene múltiples fechas
+    df['shipped_at'] = parse_dates(df['shipped_at'])
+    df['delivered_at'] = parse_dates(df['delivered_at'])
+
+    # Creamos un id_date para cada fecha
+    df['id_date_shipped'] = df['shipped_at'].apply(lambda x: convert_to_yyyymmdd(pd.Series([x]))[0] if pd.notna(x) else None)
+    df['id_date_delivered'] = df['delivered_at'].apply(lambda x: convert_to_yyyymmdd(pd.Series([x]))[0] if pd.notna(x) else None)
+    
+    df = df.rename(columns={'order_id': 'id_order'})
+    
+    df_final = df[[
+        'shipment_id', 'id_order', 'carrier', 'status', 'tracking_number',
+        'id_date_shipped', 'shipped_at', 
+        'id_date_delivered', 'delivered_at'
+    ]]
+    save_to_dw(df_final, 'fact_shipment')
 
 
-# --- 3. Transformación de dim_cliente ---
-print("\nIniciando transformación de Clientes...")
-
-# Leer el CSV original
-df_cliente = pd.read_csv(os.path.join(ruta_raw, 'customer.csv'))
-
-# --- Transformación ---
-# Combinar nombre y apellido en una sola columna
-# .fillna('') se usa por si algún nombre o apellido falta (NaN), para evitar errores
-df_cliente['nombre_completo'] = df_cliente['first_name'].fillna('') + ' ' + df_cliente['last_name'].fillna('')
-
-# Renombrar columnas (Modelado)
-df_cliente = df_cliente.rename(columns={
-    'customer_id': 'id_cliente',
-    'email': 'email',
-    'status': 'estado',
-    'created_at': 'fecha_alta'
-})
-
-# Seleccionar solo las columnas que queremos
-df_cliente_final = df_cliente[[
-    'id_cliente', 
-    'email', 
-    'nombre_completo', 
-    'estado',
-    'fecha_alta'
-]]
-
-# Guardar el archivo transformado en DW
-ruta_salida = os.path.join(ruta_dw, 'dim_cliente.csv')
-df_cliente_final.to_csv(ruta_salida, index=False)
-
-print(f"Clientes transformados y guardados en: {ruta_salida}")
-print("--- Transformación de Clientes Finalizada ---")
-
-
-# --- 4. Transformación de dim_geografia ---
-print("\nIniciando transformación de Geografía...")
-
-# Leer los CSV originales
-df_provincia = pd.read_csv(os.path.join(ruta_raw, 'province.csv'))
-df_direccion = pd.read_csv(os.path.join(ruta_raw, 'address.csv'))
-df_tienda = pd.read_csv(os.path.join(ruta_raw, 'store.csv'))
-
-# --- Transformación (Joins) ---
-# 1. Unir Tiendas con Direcciones
-df_geo = pd.merge(
-    df_tienda,
-    df_direccion,
-    on='address_id',
-    how='left' # Queremos todas las tiendas y su dirección
-)
-
-# 2. Unir el resultado con Provincias
-df_geo = pd.merge(
-    df_geo,
-    df_provincia,
-    on='province_id',
-    how='left' # Queremos la provincia de esa dirección
-)
-
-# Renombrar columnas (Modelado)
-# Usamos .rename con un diccionario grande
-df_geo = df_geo.rename(columns={
-    'store_id': 'id_tienda',
-    'name_x': 'nombre_tienda',   # 'name_x' es el 'name' de store
-    'address_id': 'id_direccion',
-    'line1': 'direccion_linea1',
-    'city': 'ciudad',
-    'province_id': 'id_provincia',
-    'name_y': 'nombre_provincia' # 'name_y' es el 'name' de province
-})
-
-# Seleccionar solo las columnas que queremos
-# Dejamos fuera 'name' (de province) y otras que no sirven
-df_geo_final = df_geo[[
-    'id_tienda', 
-    'nombre_tienda', 
-    'id_direccion',
-    'direccion_linea1',
-    'ciudad',
-    'id_provincia',
-    'nombre_provincia'
-]]
-
-# Guardar el archivo transformado en DW
-ruta_salida = os.path.join(ruta_dw, 'dim_geografia.csv')
-df_geo_final.to_csv(ruta_salida, index=False)
-
-print(f"Geografía (Tiendas) transformada y guardada en: {ruta_salida}")
-print("--- Transformación de Geografía Finalizada ---")
-
-
-# --- 5. Transformación de dim_tiempo ---
-print("\nIniciando transformación de Tiempo...")
-
-# Para crear la dimensión tiempo, primero necesitamos saber el rango de fechas
-# Leeremos 'sales_order.csv' solo para sacar la fecha mínima y máxima
-df_pedidos_para_fechas = pd.read_csv(os.path.join(ruta_raw, 'sales_order.csv'))
-
-# Convertir 'order_date' a tipo datetime para poder operar
-df_pedidos_para_fechas['order_date'] = pd.to_datetime(df_pedidos_para_fechas['order_date'])
-
-# Encontrar la fecha mínima y máxima
-fecha_min = df_pedidos_para_fechas['order_date'].min()
-fecha_max = df_pedidos_para_fechas['order_date'].max()
-
-print(f"Rango de fechas detectado: {fecha_min} a {fecha_max}")
-
-# Crear un rango de fechas completo entre la mínima y la máxima
-date_range = pd.date_range(start=fecha_min, end=fecha_max, freq='D')
-
-# Crear el DataFrame de la dimensión tiempo
-df_tiempo = pd.DataFrame(date_range, columns=['fecha_completa'])
-
-# --- Transformación (Extracción de atributos) ---
-df_tiempo['id_fecha'] = df_tiempo['fecha_completa'].dt.strftime('%Y%m%d').astype(int) # Clave YYYYMMDD
-df_tiempo['anio'] = df_tiempo['fecha_completa'].dt.year
-df_tiempo['mes'] = df_tiempo['fecha_completa'].dt.month
-df_tiempo['nombre_mes'] = df_tiempo['fecha_completa'].dt.strftime('%B') # '%B' es el nombre completo
-df_tiempo['dia'] = df_tiempo['fecha_completa'].dt.day
-df_tiempo['trimestre'] = df_tiempo['fecha_completa'].dt.quarter
-df_tiempo['dia_semana'] = df_tiempo['fecha_completa'].dt.dayofweek # Lunes=0, Domingo=6
-
-# Seleccionar y ordenar las columnas
-df_tiempo_final = df_tiempo[[
-    'id_fecha',
-    'fecha_completa',
-    'anio',
-    'mes',
-    'nombre_mes',
-    'dia',
-    'trimestre',
-    'dia_semana'
-]]
-
-# Guardar el archivo transformado en DW
-ruta_salida = os.path.join(ruta_dw, 'dim_tiempo.csv')
-df_tiempo_final.to_csv(ruta_salida, index=False)
-
-print(f"Dimensión Tiempo creada y guardada en: {ruta_salida}")
-print("--- Transformación de Tiempo Finalizada ---")
-
-
-# --- 6. Creación de la fact_ventas ---
-print("\nIniciando creación de la Tabla de Hechos: fact_ventas...")
-
-# Leer los CSV transaccionales
-df_pedidos = pd.read_csv(os.path.join(ruta_raw, 'sales_order.csv'))
-df_items = pd.read_csv(os.path.join(ruta_raw, 'sales_order_item.csv'))
-
-# Leer la dimensión de tiempo que creamos
-df_tiempo_dim = pd.read_csv(os.path.join(ruta_dw, 'dim_tiempo.csv'))
-
-# --- Transformación ---
-
-# 1. Convertir fechas
-# Mantenemos 'order_date' original (que es un timestamp)
-# Creamos una *nueva* columna 'fecha_join' solo para unir con dim_tiempo
-df_pedidos['fecha_join'] = pd.to_datetime(df_pedidos['order_date']).dt.date
-
-# Convertir 'fecha_completa' de dim_tiempo a solo fecha
-df_tiempo_dim['fecha_completa'] = pd.to_datetime(df_tiempo_dim['fecha_completa']).dt.date
-
-# 2. Unir pedidos con items
-df_ventas = pd.merge(
-    df_pedidos,
-    df_items,
-    on='order_id',
-    how='inner' # Solo queremos items de pedidos que existen
-)
-
-# 3. Filtrar por estados de pedido válidos
-# Queremos ventas reales, no canceladas [cite: 179-180]
-estados_validos = ['PAID', 'FULFILLED']
-df_ventas = df_ventas[df_ventas['status'].isin(estados_validos)]
-
-# 4. Unir con dim_tiempo para obtener el id_fecha
-df_ventas = pd.merge(
-    df_ventas,
-    df_tiempo_dim[['id_fecha', 'fecha_completa']],
-    left_on='fecha_join',
-    right_on='fecha_completa',
-    how='left'
-)
-
-# 5. Renombrar y seleccionar columnas (Modelado Final)
-df_ventas_final = df_ventas.rename(columns={
-    'order_item_id': 'id_item_pedido',
-    'order_id': 'id_pedido',
-    'id_fecha': 'id_fecha', # FK de dim_tiempo
-    'order_date': 'timestamp_pedido', # Guardamos el timestamp original
-    'customer_id': 'id_cliente', # FK de dim_cliente
-    'channel_id': 'id_canal', # FK de dim_canal
-    'store_id': 'id_tienda', # FK de dim_geografia
-    'product_id': 'id_producto', # FK de dim_producto
-    'quantity': 'cantidad',
-    'unit_price': 'precio_unitario',
-    'discount_amount': 'monto_descuento',
-    'line_total': 'total_linea',
-    'total_amount': 'total_pedido' 
-})
-
-# Seleccionar las columnas finales para la tabla de hechos
-columnas_hechos = [
-    'id_item_pedido',
-    'id_pedido',
-    'id_fecha',
-    'timestamp_pedido',
-    'id_cliente',
-    'id_canal',
-    'id_tienda',
-    'id_producto',
-    'cantidad',
-    'precio_unitario',
-    'monto_descuento',
-    'total_linea',
-    'total_pedido'
-]
-# Filtramos por las columnas deseadas y eliminamos duplicados si los hubiera
-df_ventas_final = df_ventas_final[columnas_hechos].drop_duplicates()
-
-# Guardar la tabla de hechos
-ruta_salida = os.path.join(ruta_dw, 'fact_ventas.csv')
-df_ventas_final.to_csv(ruta_salida, index=False)
-
-print(f"Tabla de Hechos 'fact_ventas' creada y guardada en: {ruta_salida}")
-print("--- Creación de Tabla de Hechos Finalizada ---")
-print("\n*** ¡Todas las transformaciones han sido completadas! ***")
+# --- PUNTO DE ENTRADA PRINCIPAL ---
+if __name__ == "__main__":
+    
+    print("--- INICIANDO PROCESO DE TRANSFORMACIÓN (ETL) ---")
+    
+    # 1. Ejecutar Dimensiones
+    print("\n--- PROCESANDO DIMENSIONES ---")
+    process_dim_channel()
+    process_dim_product()
+    process_dim_customer()
+    process_dim_province()
+    process_dim_location()
+    process_dim_store()
+    # Guardamos la dim_date en una variable para pasarla a las facts
+    df_date = process_dim_date()
+    
+    # 2. Ejecutar Tablas de Hechos
+    print("\n--- PROCESANDO TABLAS DE HECHOS ---")
+    process_fact_sales_order(df_date)
+    process_fact_sales_order_item(df_date)
+    process_fact_web_session()
+    process_fact_nps_response()
+    process_fact_payment()
+    process_fact_shipment()
+    
+    print("\n*** ¡Todas las transformaciones han sido completadas! ***")
+    print(f"Todos los archivos CSV se han guardado en la carpeta: {RUTA_DW}")
