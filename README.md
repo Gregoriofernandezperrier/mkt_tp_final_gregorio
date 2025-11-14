@@ -22,7 +22,7 @@ Proyecto final de "Introducción al Marketing Online y los Negocios Digitales". 
 
 Este proyecto implementa un data warehouse (DW) liviano en formato CSV. El script de Python `transform.py` genera un modelo dimensional "Constelación de Hechos" siguiendo las mejores prácticas de Kimball.
 
-[cite_start]El entregable final son las 13 tablas (`dim_` y `fact_`) en la carpeta `DW/`, listas para construir el dashboard de KPIs solicitado en **Looker Studio** [cite: 25][cite_start]: **Ventas**, **Usuarios Activos**, **Ticket Promedio**, **NPS**, **Ventas por Provincia** y **Ranking Mensual por Producto**[cite: 6].
+[cite_start]El entregable final son las 13 tablas (`dim_` y `fact_`) en la carpeta `DW/`, listas para construir el dashboard de KPIs solicitado en ** Power BI** [cite: 25][cite_start]: **Ventas**, **Usuarios Activos**, **Ticket Promedio**, **NPS**, **Ventas por Provincia** y **Ranking Mensual por Producto**[cite: 6].
 
 ---
 
@@ -118,7 +118,7 @@ Para ejecutar este proyecto y (re)generar el Data Warehouse en tu máquina local
     python transform.py
     ```
 
-Tras la ejecución, la carpeta `DW/` (que se crea automáticamente) contendrá las 13 tablas del Esquema Estrella en formato `.csv`, listas para ser consumidas por Looker Studio.
+Tras la ejecución, la carpeta `DW/` (que se crea automáticamente) contendrá las 13 tablas del Esquema Estrella en formato `.csv`, listas para ser consumidas por Power BI.
 
 ## 6. Diccionario de Datos (Data Warehouse)
 
@@ -149,13 +149,63 @@ El pipeline genera las siguientes 13 tablas en la carpeta `DW/`.
 
 ---
 
-## 7. KPIs del Dashboard (Próxima Entrega)
+##---
 
-[cite_start]Los archivos `.csv` generados en `DW/` son la fuente de datos para el dashboard en **Looker Studio**[cite: 25]. El modelo de datos permite calcular los siguientes KPIs:
+---
 
-* [cite_start]**Ventas Totales ($M)** [cite: 180]
-* [cite_start]**Usuarios Activos (nK)** [cite: 182]
-* [cite_start]**Ticket Promedio ($K)** [cite: 184]
-* [cite_start]**NPS (ptos.)** [cite: 185]
-* [cite_start]**Ventas por Provincia** [cite: 186]
-* [cite_start]**Ranking Mensual por Producto** [cite: 187]
+---
+
+## 7. Dashboard Final y Consultas Clave (DAX)
+
+El dashboard final fue construido en **Power BI**. A continuación, se presenta una captura del tablero terminado y las "consultas clave" (fórmulas DAX) utilizadas para calcular los KPIs principales solicitados.
+
+### Captura del Dashboard
+![Captura del Dashboard Final](assets/dashboard_final.png)
+
+### Consultas Clave (DAX)
+
+A continuación, se detallan las fórmulas DAX creadas en Power BI para calcular los KPIs principales:
+
+
+```dax
+Ventas Totales = 
+    SUM( fact_sales_order[total_amount] )
+
+Ventas por Producto = 
+    SUM(fact_sales_order_item[line_total])
+
+Usuarios Activos Diarios = 
+    DISTINCTCOUNT( fact_web_session[session_id] )
+
+Usuarios Activos =
+    Usuarios Activos = DISTINCTCOUNT( fact_sales_order[id_customer] )
+
+Ticket Promedio = 
+DIVIDE(
+    SUM(fact_sales_order[total_amount]),
+    DISTINCTCOUNT(fact_sales_order[id_order])
+)
+
+
+NPS Detractores = 
+CALCULATE (
+    COUNTROWS ( fact_nps_response ),
+    fact_nps_response[score] <= 6
+)
+
+NPS Promotores = 
+CALCULATE (
+    COUNTROWS ( fact_nps_response ),
+    fact_nps_response[score] >= 9,
+    fact_nps_response[score] <= 10
+)
+
+NPS Total Respuestas = 
+COUNTROWS ( fact_nps_response )
+
+NPS = 
+DIVIDE (
+    [NPS Promotores] - [NPS Detractores],
+    [NPS Total Respuestas]
+) * 100
+
