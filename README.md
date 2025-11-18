@@ -160,7 +160,7 @@ El pipeline genera las siguientes 13 tablas en la carpeta `DW/`.
 El dashboard final fue construido en **Power BI**. A continuación, se presenta una captura del tablero terminado y las "consultas clave" (fórmulas DAX) utilizadas para calcular los KPIs principales solicitados.
 
 ### Captura del Dashboard
-![Captura del Dashboard Final](assets/dashboard_final.png)
+![Captura del Dashboard Final](assets/dashboard_final.jpeg)
 
 ### Consultas Clave (DAX)
 
