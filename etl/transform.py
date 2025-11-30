@@ -23,10 +23,19 @@ def process_dim_channel():
     df = load_raw_data('channel')
     if df is None:
         return
-    df = df.rename(columns={'channel_id': 'id_channel',
-                            'name': 'channel_name',
-                            'code': 'channel_code'})
-    save_to_dw(df, 'dim_channel')
+
+    df = df.rename(columns={
+        'channel_id': 'id_channel',
+        'name': 'channel_name',
+        'code': 'channel_code'
+    })
+
+    df['channel_sk'] = range(1, len(df) + 1)
+
+    df_final = df[['channel_sk', 'id_channel', 'channel_name', 'channel_code']]
+
+    save_to_dw(df_final, 'dim_channel')
+    return df_final
 
 
 def process_dim_product():
@@ -36,17 +45,24 @@ def process_dim_product():
     if df_producto is None or df_categoria is None:
         return
 
-    df_prod_full = pd.merge(df_producto, df_categoria,
-                            on='category_id', how='left')
+    df_prod_full = pd.merge(df_producto, df_categoria, on='category_id', how='left')
+
     df_prod_full = df_prod_full.rename(columns={
         'product_id': 'id_product',
         'name_x': 'product_name',
         'list_price': 'list_price',
         'name_y': 'category_name'
     })
-    df_prod_final = df_prod_full[['id_product', 'sku', 'product_name',
-                                  'list_price', 'category_name']]
+
+    df_prod_full['product_sk'] = range(1, len(df_prod_full) + 1)
+
+    df_prod_final = df_prod_full[['product_sk', 'id_product', 'sku',
+                                  'product_name', 'list_price', 'category_name']]
+
     save_to_dw(df_prod_final, 'dim_product')
+
+    return df_prod_final
+
 
 
 def process_dim_customer():
@@ -56,14 +72,21 @@ def process_dim_customer():
         return
 
     df['full_name'] = df['first_name'].fillna('') + ' ' + df['last_name'].fillna('')
+
     df = df.rename(columns={
         'customer_id': 'id_customer',
         'status': 'status',
         'created_at': 'created_at'
     })
-    df_final = df[['id_customer', 'email', 'full_name',
+
+    df['customer_sk'] = range(1, len(df) + 1)
+
+    df_final = df[['customer_sk', 'id_customer', 'email', 'full_name',
                    'status', 'created_at']]
+
     save_to_dw(df_final, 'dim_customer')
+    return df_final
+
 
 
 def process_dim_province():
@@ -71,10 +94,20 @@ def process_dim_province():
     df = load_raw_data('province')
     if df is None:
         return
-    df = df.rename(columns={'province_id': 'id_province',
-                            'name': 'province_name',
-                            'code': 'province_code'})
-    save_to_dw(df, 'dim_province')
+
+    df = df.rename(columns={
+        'province_id': 'id_province',
+        'name': 'province_name',
+        'code': 'province_code'
+    })
+
+    df['province_sk'] = range(1, len(df) + 1)
+
+    df_final = df[['province_sk', 'id_province', 'province_name', 'province_code']]
+
+    save_to_dw(df_final, 'dim_province')
+    return df_final
+
 
 
 def process_dim_location():
@@ -82,13 +115,22 @@ def process_dim_location():
     df = load_raw_data('address')
     if df is None:
         return
-    df = df.rename(columns={'address_id': 'id_location',
-                            'line1': 'address_line1',
-                            'city': 'city',
-                            'province_id': 'id_province'})
-    df_final = df[['id_location', 'address_line1', 'city',
-                   'id_province', 'postal_code']]
+
+    df = df.rename(columns={
+        'address_id': 'id_location',
+        'line1': 'address_line1',
+        'city': 'city',
+        'province_id': 'id_province'
+    })
+
+    df['location_sk'] = range(1, len(df) + 1)
+
+    df_final = df[['location_sk', 'id_location', 'address_line1',
+                   'city', 'id_province', 'postal_code']]
+
     save_to_dw(df_final, 'dim_location')
+    return df_final
+
 
 
 def process_dim_store():
@@ -96,11 +138,20 @@ def process_dim_store():
     df = load_raw_data('store')
     if df is None:
         return
-    df = df.rename(columns={'store_id': 'id_store',
-                            'name': 'store_name',
-                            'address_id': 'id_location'})
-    df_final = df[['id_store', 'store_name', 'id_location']]
+
+    df = df.rename(columns={
+        'store_id': 'id_store',
+        'name': 'store_name',
+        'address_id': 'id_location'
+    })
+
+    df['store_sk'] = range(1, len(df) + 1)
+
+    df_final = df[['store_sk', 'id_store', 'store_name', 'id_location']]
+
     save_to_dw(df_final, 'dim_store')
+    return df_final
+
 
 
 def process_dim_date():
@@ -130,20 +181,23 @@ def process_dim_date():
     save_to_dw(df_date_final, 'dim_date')
     return df_date_final  
 
-def process_fact_sales_order(df_date):
+def process_fact_sales_order(df_date, dim_customer, dim_channel, dim_store, dim_location):
     print("\nProcesando: fact_sales_order...")
     df = load_raw_data('sales_order')
     if df is None or df_date is None:
         return
 
+    # Filtrar por ventas válidas
     estados_validos = ['PAID', 'FULFILLED']
     df = df[df['status'].isin(estados_validos)]
 
+    # Preparar fechas para el join
     df['order_date'] = parse_dates(df['order_date'])
     df['date_join'] = df['order_date'].dt.date
     df_date = df_date.copy()
     df_date['date_join'] = parse_dates(df_date['full_date']).dt.date
 
+    # Join con dim_date
     df_fact = pd.merge(
         df,
         df_date[['id_date', 'date_join']],
@@ -151,6 +205,7 @@ def process_fact_sales_order(df_date):
         how='left'
     )
 
+    # Renombrar columnas naturales
     df_fact = df_fact.rename(columns={
         'order_id': 'id_order',
         'customer_id': 'id_customer',
@@ -164,15 +219,57 @@ def process_fact_sales_order(df_date):
         'shipping_fee': 'shipping_fee'
     })
 
+    # 👉 Agregar surrogate keys desde las dimensiones
+    df_fact = df_fact.merge(
+        dim_customer[['customer_sk', 'id_customer']],
+        on='id_customer',
+        how='left'
+    )
+
+    df_fact = df_fact.merge(
+        dim_channel[['channel_sk', 'id_channel']],
+        on='id_channel',
+        how='left'
+    )
+
+    df_fact = df_fact.merge(
+        dim_store[['store_sk', 'id_store']],
+        on='id_store',
+        how='left'
+    )
+
+    # Para la dirección de envío usamos dim_location (id_shipping_location)
+    df_fact = df_fact.merge(
+        dim_location[['location_sk', 'id_location']],
+        left_on='id_shipping_location',
+        right_on='id_location',
+        how='left'
+    )
+
+    # Renombrar la surrogate de location para que se entienda mejor
+    df_fact = df_fact.rename(columns={
+        'location_sk': 'shipping_location_sk'
+    })
+
+    # 👉 Fact final: usamos surrogate keys como FK
     df_final = df_fact[[
-        'id_order', 'id_date', 'id_customer', 'id_channel', 'id_store',
-        'id_shipping_location', 'total_amount', 'subtotal',
-        'tax_amount', 'shipping_fee'
+        'id_order',
+        'id_date',
+        'customer_sk',
+        'channel_sk',
+        'store_sk',
+        'shipping_location_sk',
+        'total_amount',
+        'subtotal',
+        'tax_amount',
+        'shipping_fee'
     ]]
+
     save_to_dw(df_final, 'fact_sales_order')
 
 
-def process_fact_sales_order_item(df_date):
+
+def process_fact_sales_order_item(df_date, dim_customer, dim_product):
     print("\nProcesando: fact_sales_order_item...")
     df_pedidos = load_raw_data('sales_order')
     df_items = load_raw_data('sales_order_item')
@@ -200,21 +297,42 @@ def process_fact_sales_order_item(df_date):
         'order_item_id': 'id_order_item',
         'order_id': 'id_order',
         'product_id': 'id_product',
-        'customer_id': 'id_customer',
+        'customer_id': 'id_customer',  
         'quantity': 'quantity',
         'unit_price': 'unit_price',
         'discount_amount': 'discount_amount',
         'line_total': 'line_total'
     })
 
+    df_fact = df_fact.merge(
+        dim_product[['product_sk', 'id_product']],
+        on='id_product',
+        how='left'
+    )
+
+    df_fact = df_fact.merge(
+        dim_customer[['customer_sk', 'id_customer']],
+        on='id_customer',
+        how='left'
+    )
+
     df_final = df_fact[[
-        'id_order_item', 'id_order', 'id_date', 'id_product', 'id_customer',
-        'quantity', 'unit_price', 'discount_amount', 'line_total'
+        'id_order_item',
+        'id_order',
+        'id_date',
+        'product_sk',
+        'customer_sk',
+        'quantity',
+        'unit_price',
+        'discount_amount',
+        'line_total'
     ]]
+
     save_to_dw(df_final, 'fact_sales_order_item')
 
 
-def process_fact_web_session():
+
+def process_fact_web_session(dim_customer):
     print("\nProcesando: fact_web_session...")
     df = load_raw_data('web_session')
     if df is None:
@@ -226,12 +344,26 @@ def process_fact_web_session():
 
     df = df.rename(columns={'customer_id': 'id_customer'})
 
-    df_final = df[['session_id', 'id_customer', 'id_date',
-                   'source', 'device', 'started_at']]
+    df = df.merge(
+        dim_customer[['customer_sk', 'id_customer']],
+        on='id_customer',
+        how='left'
+    )
+
+    df_final = df[[
+        'session_id',
+        'id_customer',
+        'customer_sk',
+        'id_date',
+        'source',
+        'device',
+        'started_at'
+    ]]
+
     save_to_dw(df_final, 'fact_web_session')
 
 
-def process_fact_nps_response():
+def process_fact_nps_response(dim_customer, dim_channel):
     print("\nProcesando: fact_nps_response...")
     df = load_raw_data('nps_response')
     if df is None:
@@ -241,12 +373,36 @@ def process_fact_nps_response():
     df = df.dropna(subset=['responded_at'])
     df['id_date'] = convert_to_yyyymmdd(df['responded_at'])
 
-    df = df.rename(columns={'customer_id': 'id_customer',
-                            'channel_id': 'id_channel'})
+    df = df.rename(columns={
+        'customer_id': 'id_customer',
+        'channel_id': 'id_channel'
+    })
 
-    df_final = df[['nps_id', 'id_customer', 'id_channel',
-                   'id_date', 'score', 'responded_at']]
+    df = df.merge(
+        dim_customer[['customer_sk', 'id_customer']],
+        on='id_customer',
+        how='left'
+    )
+
+    df = df.merge(
+        dim_channel[['channel_sk', 'id_channel']],
+        on='id_channel',
+        how='left'
+    )
+
+    df_final = df[[
+        'nps_id',
+        'id_customer',
+        'customer_sk',
+        'id_channel',
+        'channel_sk',
+        'id_date',
+        'score',
+        'responded_at'
+    ]]
+
     save_to_dw(df_final, 'fact_nps_response')
+
 
 
 def process_fact_payment():
