@@ -1,4 +1,4 @@
-id_order_item,id_order,id_date,id_product,id_customer,quantity,unit_price,discount_amount,line_total
+id_order_item,id_order,id_date,product_sk,customer_sk,quantity,unit_price,discount_amount,line_total
 5000000000,1000000000,20241126,2,356,2,15000.0,0.0,30000.0
 5000000001,1000000000,20241126,1,356,2,12000.0,2400.0,21600.0
 5000000005,1000000002,20250226,1,1234,1,12000.0,240.0,11760.0
