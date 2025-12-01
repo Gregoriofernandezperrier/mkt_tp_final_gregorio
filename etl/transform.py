@@ -112,24 +112,18 @@ def process_dim_province():
 
 def process_dim_location():
     print("\nProcesando: dim_location...")
-    df = load_raw_data('address')
-    if df is None:
-        return
-
-    df = df.rename(columns={
-        'address_id': 'id_location',
-        'line1': 'address_line1',
-        'city': 'city',
-        'province_id': 'id_province'
-    })
+    address = load_raw_data('address')
+    province = load_raw_data('province')
+    df = (
+        address
+        .merge(province, how = 'left', on = 'province_id', suffixes=['','_province'])
+        .drop(columns=['province_id'])
+        .rename(columns={'address_id':'id_location'}))
 
     df['location_sk'] = range(1, len(df) + 1)
 
-    df_final = df[['location_sk', 'id_location', 'address_line1',
-                   'city', 'id_province', 'postal_code']]
-
-    save_to_dw(df_final, 'dim_location')
-    return df_final
+    save_to_dw(df, 'dim_location')
+    return df
 
 
 
