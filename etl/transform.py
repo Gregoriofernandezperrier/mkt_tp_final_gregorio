@@ -135,22 +135,21 @@ def process_dim_location():
 
 def process_dim_store():
     print("\nProcesando: dim_store...")
-    df = load_raw_data('store')
-    if df is None:
-        return
-
+    store = load_raw_data('store')
+    address = load_raw_data('address')
+    province = load_raw_data('province')
+    df = store.merge(address,how = 'left', on = 'address_id', suffixes = ['','_address'])
+    df = df.merge(province,how = 'left', on = 'province_id', suffixes = ['','_province'])
     df = df.rename(columns={
         'store_id': 'id_store',
         'name': 'store_name',
-        'address_id': 'id_location'
     })
-
+    df = df.drop(columns = ['province_id', 'address_id'])
     df['store_sk'] = range(1, len(df) + 1)
 
-    df_final = df[['store_sk', 'id_store', 'store_name', 'id_location']]
 
-    save_to_dw(df_final, 'dim_store')
-    return df_final
+    save_to_dw(df, 'dim_store')
+    return df
 
 
 
@@ -181,23 +180,20 @@ def process_dim_date():
     save_to_dw(df_date_final, 'dim_date')
     return df_date_final  
 
-def process_fact_sales_order(df_date, dim_customer, dim_channel, dim_store, dim_location):
+def process_fact_sales_order(df_date, dim_customer, dim_channel, dim_store, dim_location): 
     print("\nProcesando: fact_sales_order...")
     df = load_raw_data('sales_order')
     if df is None or df_date is None:
         return
 
-    # Filtrar por ventas válidas
     estados_validos = ['PAID', 'FULFILLED']
     df = df[df['status'].isin(estados_validos)]
 
-    # Preparar fechas para el join
     df['order_date'] = parse_dates(df['order_date'])
     df['date_join'] = df['order_date'].dt.date
     df_date = df_date.copy()
     df_date['date_join'] = parse_dates(df_date['full_date']).dt.date
 
-    # Join con dim_date
     df_fact = pd.merge(
         df,
         df_date[['id_date', 'date_join']],
@@ -205,7 +201,6 @@ def process_fact_sales_order(df_date, dim_customer, dim_channel, dim_store, dim_
         how='left'
     )
 
-    # Renombrar columnas naturales
     df_fact = df_fact.rename(columns={
         'order_id': 'id_order',
         'customer_id': 'id_customer',
@@ -219,7 +214,6 @@ def process_fact_sales_order(df_date, dim_customer, dim_channel, dim_store, dim_
         'shipping_fee': 'shipping_fee'
     })
 
-    # 👉 Agregar surrogate keys desde las dimensiones
     df_fact = df_fact.merge(
         dim_customer[['customer_sk', 'id_customer']],
         on='id_customer',
@@ -238,7 +232,6 @@ def process_fact_sales_order(df_date, dim_customer, dim_channel, dim_store, dim_
         how='left'
     )
 
-    # Para la dirección de envío usamos dim_location (id_shipping_location)
     df_fact = df_fact.merge(
         dim_location[['location_sk', 'id_location']],
         left_on='id_shipping_location',
@@ -246,13 +239,15 @@ def process_fact_sales_order(df_date, dim_customer, dim_channel, dim_store, dim_
         how='left'
     )
 
-    # Renombrar la surrogate de location para que se entienda mejor
     df_fact = df_fact.rename(columns={
         'location_sk': 'shipping_location_sk'
     })
 
-    # 👉 Fact final: usamos surrogate keys como FK
+
+    df_fact = df_fact.reset_index(drop=True)
+    df_fact['sales_order_sk'] = df_fact.index + 1
     df_final = df_fact[[
+        'sales_order_sk',
         'id_order',
         'id_date',
         'customer_sk',
@@ -297,7 +292,7 @@ def process_fact_sales_order_item(df_date, dim_customer, dim_product):
         'order_item_id': 'id_order_item',
         'order_id': 'id_order',
         'product_id': 'id_product',
-        'customer_id': 'id_customer',  
+        'customer_id': 'id_customer',
         'quantity': 'quantity',
         'unit_price': 'unit_price',
         'discount_amount': 'discount_amount',
@@ -316,7 +311,10 @@ def process_fact_sales_order_item(df_date, dim_customer, dim_product):
         how='left'
     )
 
+    df_fact = df_fact.reset_index(drop=True)
+    df_fact['sales_order_item_sk'] = df_fact.index + 1
     df_final = df_fact[[
+        'sales_order_item_sk',
         'id_order_item',
         'id_order',
         'id_date',
@@ -329,6 +327,7 @@ def process_fact_sales_order_item(df_date, dim_customer, dim_product):
     ]]
 
     save_to_dw(df_final, 'fact_sales_order_item')
+
 
 
 
@@ -350,7 +349,10 @@ def process_fact_web_session(dim_customer):
         how='left'
     )
 
+    df = df.reset_index(drop=True)
+    df['web_session_sk'] = df.index + 1
     df_final = df[[
+        'web_session_sk',
         'session_id',
         'id_customer',
         'customer_sk',
@@ -361,6 +363,7 @@ def process_fact_web_session(dim_customer):
     ]]
 
     save_to_dw(df_final, 'fact_web_session')
+
 
 
 def process_fact_nps_response(dim_customer, dim_channel):
@@ -390,7 +393,11 @@ def process_fact_nps_response(dim_customer, dim_channel):
         how='left'
     )
 
+
+    df = df.reset_index(drop=True)
+    df['nps_response_sk'] = df.index + 1
     df_final = df[[
+        'nps_response_sk',
         'nps_id',
         'id_customer',
         'customer_sk',
@@ -415,12 +422,27 @@ def process_fact_payment():
     df = df.dropna(subset=['paid_at'])
     df['id_date'] = convert_to_yyyymmdd(df['paid_at'])
 
-    df = df.rename(columns={'order_id': 'id_order',
-                            'method': 'payment_method'})
+    df = df.rename(columns={
+        'order_id': 'id_order',
+        'method': 'payment_method'
+    })
 
-    df_final = df[['payment_id', 'id_order', 'id_date',
-                   'payment_method', 'status', 'amount', 'paid_at']]
+
+    df = df.reset_index(drop=True)
+    df['payment_sk'] = df.index + 1
+    df_final = df[[
+        'payment_sk',
+        'payment_id',
+        'id_order',
+        'id_date',
+        'payment_method',
+        'status',
+        'amount',
+        'paid_at'
+    ]]
+
     save_to_dw(df_final, 'fact_payment')
+
 
 
 def process_fact_shipment():
@@ -441,9 +463,21 @@ def process_fact_shipment():
 
     df = df.rename(columns={'order_id': 'id_order'})
 
+
+    df = df.reset_index(drop=True)
+    df['shipment_sk'] = df.index + 1
     df_final = df[[
-        'shipment_id', 'id_order', 'carrier', 'status', 'tracking_number',
-        'id_date_shipped', 'shipped_at',
-        'id_date_delivered', 'delivered_at'
+        'shipment_sk',
+        'shipment_id',
+        'id_order',
+        'carrier',
+        'status',
+        'tracking_number',
+        'id_date_shipped',
+        'shipped_at',
+        'id_date_delivered',
+        'delivered_at'
     ]]
+
     save_to_dw(df_final, 'fact_shipment')
+

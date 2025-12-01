@@ -20,39 +20,56 @@ Proyecto final de "Introducción al Marketing Online y los Negocios Digitales". 
 
 ## 1. Descripción y Objetivos
 
-Este proyecto implementa un data warehouse (DW) liviano en formato CSV. El script de Python `transform.py` genera un modelo dimensional "Constelación de Hechos" siguiendo las mejores prácticas de Kimball.
+El proyecto implementa un pipeline ETL modular que toma los datos crudos ubicados en `RAW/`, los transforma siguiendo un modelo dimensional (Esquema Estrella) y genera un Data Warehouse en formato CSV dentro de la carpeta `DW/`.
 
-[cite_start]El entregable final son las 13 tablas (`dim_` y `fact_`) en la carpeta `DW/`, listas para construir el dashboard de KPIs solicitado en ** Power BI** [cite: 25][cite_start]: **Ventas**, **Usuarios Activos**, **Ticket Promedio**, **NPS**, **Ventas por Provincia** y **Ranking Mensual por Producto**[cite: 6].
+El pipeline está dividido en tres etapas:
 
----
+- **Extracción** (`etl/extract.py`)
+- **Transformación** (creación de dimensiones y hechos, `etl/transform.py`)
+- **Carga** (`etl/load.py`)
+
+Este diseño permite reprocesar cada tabla de manera independiente y está alineado con las prácticas vistas en clase.
+
+Todas las dimensiones del modelo incluyen **claves sustitutas** (`*_sk`) generadas durante el ETL, mientras que las claves naturales originales (`id_*`) se mantienen como atributos para trazabilidad.
+
+El Data Warehouse resultante es utilizado en la construcción del dashboard de KPIs solicitados en Power BI.
+
 
 ## 2. Modelo de Datos y Supuestos
 
-Se diseñó una **Constelación de Hechos** (múltiples esquemas estrella) donde las dimensiones comunes (ej. `dim_date`, `dim_customer`) son "conformadas" y compartidas por múltiples tablas de hechos.
+El Data Warehouse sigue un diseño de **Constelación de Hechos**, donde varias tablas de hechos comparten dimensiones conformadas. El objetivo es obtener un modelo analítico limpio, consultable y alineado con las prácticas vistas en clase.
 
-**Supuestos y Decisiones de Modelado:**
+### ✔️ Claves del Modelo
+- Todas las **dimensiones** utilizan **claves sustitutas** (`*_sk`) generadas durante el proceso de transformación.
+- Las **claves naturales** provenientes de `RAW` (por ejemplo `id_product`, `id_customer`, `id_channel`) se mantienen como atributos informativos, pero **ya no forman parte de las relaciones** entre tablas.
+- Las **tablas de hechos** referencian únicamente las **surrogate keys** de sus dimensiones.
 
-* **Claves (Keys):**
-    * Se utilizan las **Claves de Negocio (Business Keys)** originales (ej. `customer_id`, `product_id`) como claves primarias y foráneas en todo el modelo. Esto simplifica la trazabilidad con los datos `RAW` y cumple con los requisitos del proyecto sin generar *Surrogate Keys* (`_sk`).
-* **Dimensión de Tiempo (`dim_date`):**
-    * Esta es una **dimensión de conformación generada** por el script `transform.py`, ya que no existe en los datos `RAW`. Se crea en base al rango de fechas de la tabla `sales_order`.
-    * Todas las tablas de hechos se vinculan a esta dimensión a través de un `id_date` numérico (formato `YYYYMMDD`).
-* **Denormalización en Dimensiones:**
-    * **`dim_product`**: Se denormaliza uniendo `product` con `product_category` para incluir el nombre de la categoría.
-    * **`dim_location`**: Se denormaliza uniendo `address` con `province` para tener la información de provincia.
-* **KPI de Ventas:**
-    * [cite_start]Siguiendo la consigna, solo se consideran ventas válidas aquellas órdenes con estado `PAID` o `FULFILLED`[cite: 180].
+### ✔️ Dimensión de Tiempo (`dim_date`)
+- Se genera automáticamente en base al rango de fechas de `sales_order`.
+- Aporta atributos como año, mes, trimestre, nombre del mes, día de la semana, etc.
+- `id_date` (formato `YYYYMMDD`) funciona como surrogate key de la dimensión.
 
----
+### ✔️ Denormalización en Dimensiones
+- **`dim_product`** integra la categoría del producto a partir de `product_category`.
+- **`dim_location`** incluye información de dirección y código postal.
+- **`dim_store`** incorpora su localización mediante `address_id`.
 
-## 3. Diagramas del Esquema (Constelación de Hechos)
+### ✔️ Supuestos Relevantes del Negocio
+- Solo se consideran **ventas válidas** las órdenes con estado `PAID` o `FULFILLED`.
+- Las sesiones web sin cliente asociado se mantienen, pero sólo generan `customer_sk` cuando corresponde.
+- Los pagos y envíos se modelan como hechos independientes por transacción/logística.
 
-Los siguientes diagramas (generados en `drawDB` y guardados en `esquemas_estrella/`) ilustran las relaciones entre las tablas de hechos y sus dimensiones.
+En conjunto, este modelo permite analizar ventas, sesiones, NPS, logística y pagos con un nivel de detalle consistente y unificado a través de dimensiones conformadas.
+
+## 3. Diagramas del Modelo (Constelación de Hechos)
+
+Los siguientes diagramas ilustran las relaciones entre las dimensiones y las tablas de hechos del Data Warehouse.  
+Se encuentran en la carpeta `esquemas_estrella/` y representan el modelo implementado en el ETL, utilizando claves sustitutas en todas las dimensiones.
 
 ### A. Constelación de Ventas (Pedidos, Items, Pagos y Envíos)
 ![Diagrama de Ventas](esquemas_estrella/ventas.jpeg)
 
-### B. Esquema de Sesiones Web (Usuarios Activos)
+### B. Esquema de Sesiones Web
 ![Diagrama de Sesiones](esquemas_estrella/web_session.jpeg)
 
 ### C. Esquema de NPS
@@ -62,32 +79,38 @@ Los siguientes diagramas (generados en `drawDB` y guardados en `esquemas_estrell
 ![Diagrama de Pagos](esquemas_estrella/payments.jpeg)
 ![Diagrama de Envíos](esquemas_estrella/shipments.jpeg)
 
----
-
 ## 4. Estructura del Repositorio
 
-El proyecto utiliza una estructura simple con un script central de transformación.
+El proyecto fue reorganizado siguiendo un enfoque modular del pipeline ETL (Extract – Transform – Load).  
+Esto permite ejecutar, mantener y testear cada etapa de manera independiente.
+
 .
-├── README.md                # (Este archivo)
-├── requirements.txt         # (Dependencias de Python)
+├── README.md
+├── requirements.txt
 ├── .gitignore
-├── transform.py             # (Script ETL principal que lee de RAW y escribe en DW)
+├── main.py 
 │
-├── RAW/                     # (Datos fuente - NO MODIFICAR)
-│   └── *.csv
+├── etl/ 
+│ ├── extract.py 
+│ ├── transform.py 
+│ └── load.py
 │
-├── DW/                      # (Data Warehouse - DATOS GENERADOS)
-│   ├── dim_*.csv
-│   └── fact_*.csv
+├── RAW/
+│ └── .csv
 │
-├── esquemas_estrella/       # (Diagramas del Modelo de Datos)
-│   └── *.jpeg
+├── DW/
+│ ├── dim_.csv
+│ └── fact_*.csv
 │
-└── .venv/                   # (Entorno virtual - Ignorado por Git)
+├── esquemas_estrella/ # Diagramas del modelo dimensional
+│ └── *.jpeg
+│
+└── .venv/
+
 
 ## 5. Instrucciones de Ejecución
 
-Para ejecutar este proyecto y (re)generar el Data Warehouse en tu máquina local:
+Para ejecutar este proyecto y regenerar el Data Warehouse en tu máquina local usando el orquestador `main.py`:
 
 1.  **Clonar el repositorio:**
     ```bash
@@ -113,9 +136,11 @@ Para ejecutar este proyecto y (re)generar el Data Warehouse en tu máquina local
     ```
 
 4.  **Ejecutar el Pipeline ETL:**
-    *Asegúrate de que la carpeta `RAW/` contenga todos los CSVs originales.*
+    El archivo `main.py` orquesta las tres etapas del proceso (extract, transform y load).  
+    Asegúrate de que la carpeta `RAW/` contenga todos los CSVs originales.
+
     ```bash
-    python transform.py
+    python main.py
     ```
 
 Tras la ejecución, la carpeta `DW/` (que se crea automáticamente) contendrá las 13 tablas del Esquema Estrella en formato `.csv`, listas para ser consumidas por Power BI.
@@ -136,6 +161,10 @@ El pipeline genera las siguientes 13 tablas en la carpeta `DW/`.
 | **`dim_province`** | Catálogo de provincias. |
 | **`dim_store`** | Maestro de tiendas físicas y sus direcciones. |
 
+Nota:
+Todas las dimensiones incorporan claves sustitutas (*_sk) generadas durante el proceso ETL.
+Las claves naturales del sistema transaccional (id_*) se mantienen como atributos descriptivos.
+
 ### B. Hechos (Facts)
 
 | Tabla | Descripción | Grano |
@@ -147,6 +176,8 @@ El pipeline genera las siguientes 13 tablas en la carpeta `DW/`.
 | **`fact_web_session`** | Sesiones de navegación web. | Una fila por sesión web. |
 | **`fact_nps_response`** | Respuestas a las encuestas de NPS. | Una fila por respuesta de encuesta. |
 
+Nota:
+Las tablas de hechos referencian las dimensiones utilizando las surrogate keys (*_sk) y el atributo id_date en el caso de la dimensión calendario.
 ---
 
 ##---
