@@ -182,4 +182,10 @@ Las tablas de hechos referencian las dimensiones utilizando las surrogate keys (
 
 ##---
 
+---
 
+---
+
+## 7. Link al Dashboard Final
+
+https://app.powerbi.com/links/aAI72hu5ar?ctid=3e0513d6-68fa-416e-8de1-6c5cdc319ffa&pbi_source=linkShare
