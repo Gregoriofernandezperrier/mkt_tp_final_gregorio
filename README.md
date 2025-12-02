@@ -66,18 +66,20 @@ En conjunto, este modelo permite analizar ventas, sesiones, NPS, logística y pa
 Los siguientes diagramas ilustran las relaciones entre las dimensiones y las tablas de hechos del Data Warehouse.  
 Se encuentran en la carpeta `esquemas_estrella/` y representan el modelo implementado en el ETL, utilizando claves sustitutas en todas las dimensiones.
 
-### A. Constelación de Ventas (Pedidos, Items, Pagos y Envíos)
-![Diagrama de Ventas](esquemas_estrella/ventas.jpeg)
+### A. Constelación de Ventas (Pedidos e Items)
+![Sales Order](esquemas_estrella/fact_sales_order.jpeg)
+![Sales Order Item](esquemas_estrella/fact_sales_order_item.jpeg)
 
 ### B. Esquema de Sesiones Web
-![Diagrama de Sesiones](esquemas_estrella/web_session.jpeg)
+![Diagrama de Sesiones](esquemas_estrella/fact_web_session.jpeg)
 
 ### C. Esquema de NPS
-![Diagrama de NPS](esquemas_estrella/NPS.jpeg)
+![Diagrama de NPS](esquemas_estrella/fact_nps_response.jpeg)
 
 ### D. Esquemas de Pagos y Envíos
-![Diagrama de Pagos](esquemas_estrella/payments.jpeg)
-![Diagrama de Envíos](esquemas_estrella/shipments.jpeg)
+![Diagrama de Pagos](esquemas_estrella/fact_payment.jpeg)
+![Diagrama de Envíos](esquemas_estrella/fact_shipment.jpeg)
+
 
 ## 4. Estructura del Repositorio
 
